@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>PromptOp Web Terminal</title>
+  <style>
+    :root{--bg:#0b0f14;--panel:#0f1720;--accent:#7dd3fc;--muted:#94a3b8}
+    body{margin:0;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,"Helvetica Neue",Arial;background:var(--bg);color:#e6eef6}
+    .wrap{max-width:900px;margin:28px auto;padding:18px;background:linear-gradient(180deg,rgba(255,255,255,0.02),transparent);border-radius:10px;box-shadow:0 6px 30px rgba(2,6,23,0.6)}
+    h1{margin:0 0 12px;font-size:20px;color:var(--accent)}
+    .term{background:var(--panel);border-radius:8px;padding:12px;min-height:320px;display:flex;flex-direction:column;gap:8px}
+    .output{flex:1;overflow:auto;padding:8px;background:rgba(0,0,0,0.15);border-radius:6px;font-family:monospace;font-size:13px;color:#dbeafe}
+    .prompt{display:flex;gap:8px;align-items:center}
+    .prompt .label{color:var(--muted);font-family:monospace}
+    input.cmd{flex:1;background:transparent;border:0;outline:none;color:#e6eef6;font-family:monospace;font-size:14px}
+    .controls{display:flex;gap:8px;margin-top:8px}
+    button{background:#0ea5a4;border:0;padding:8px 12px;border-radius:6px;color:#042022;cursor:pointer}
+    button.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .notice{font-size:13px;color:var(--muted);margin-top:8px}
+    .line{white-space:pre-wrap}
+  </style>
+</head>
+<body>
+  <div class="wrap" role="main">
+    <h1>PromptOp Web Terminal</h1>
+    <div class="term" aria-live="polite">
+      <div id="output" class="output" tabindex="0"></div>
+
+      <div class="prompt" aria-label="command prompt">
+        <span class="label">user@mint:$</span>
+        <input id="cmd" class="cmd" autocomplete="off" spellcheck="false" placeholder="Type a command and press Enter" />
+      </div>
+
+      <div class="controls">
+        <button id="run">Run</button>
+        <button id="clear" class="secondary">Clear</button>
+        <button id="history" class="secondary">History</button>
+      </div>
+
+      <div class="notice">
+        <strong>Security</strong> — This UI sends commands to a server endpoint. The server must restrict allowed commands and require authentication.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const outputEl = document.getElementById('output');
+    const cmdInput = document.getElementById('cmd');
+    const runBtn = document.getElementById('run');
+    const clearBtn = document.getElementById('clear');
+    const historyBtn = document.getElementById('history');
+
+    let history = [];
+    let histIndex = -1;
+
+    function appendLine(text, cls = '') {
+      const div = document.createElement('div');
+      div.className = 'line ' + cls;
+      div.textContent = text;
+      outputEl.appendChild(div);
+      outputEl.scrollTop = outputEl.scrollHeight;
+    }
+
+    async function runCommand(command) {
+      if (!command.trim()) return;
+      appendLine(`$ ${command}`, 'cmdline');
+      history.unshift(command);
+      histIndex = -1;
+      cmdInput.value = '';
+
+      try {
+        const res = await fetch('/api/exec', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({cmd: command})
+        });
+
+        if (!res.ok) {
+          const err = await res.text();
+          appendLine(`Error: ${err}`, 'error');
+          return;
+        }
+
+        const data = await res.json();
+        if (data.stdout) appendLine(data.stdout);
+        if (data.stderr) appendLine(data.stderr, 'stderr');
+        if (data.error) appendLine(`Server error: ${data.error}`, 'error');
+      } catch (e) {
+        appendLine('Network error: ' + e.message, 'error');
+      }
+    }
+
+    cmdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        runCommand(cmdInput.value);
+      } else if (e.key === 'ArrowUp') {
+        if (history.length && histIndex < history.length - 1) {
+          histIndex++;
+          cmdInput.value = history[histIndex];
+        }
+        e.preventDefault();
+      } else if (e.key === 'ArrowDown') {
+        if (histIndex > 0) {
+          histIndex--;
+          cmdInput.value = history[histIndex];
+        } else {
+          histIndex = -1;
+          cmdInput.value = '';
+        }
+        e.preventDefault();
+      }
+    });
+
+    runBtn.addEventListener('click', () => runCommand(cmdInput.value));
+    clearBtn.addEventListener('click', () => { outputEl.innerHTML = ''; });
+    historyBtn.addEventListener('click', () => {
+      appendLine('History: ' + history.join(' | '));
+    });
+
+    // Focus input on load
+    cmdInput.focus();
+  </script>
+</body>
+</html>
